@@ -1,0 +1,11 @@
+{
+  "name": "dsh-rewind",
+  "version": "1.0.0",
+  "description": "Checkpoint/rewind extension for DeepSeek Harness (DSH), adapted from pi-rewind.",
+  "license": "MIT",
+  "private": true,
+  "files": [
+    "src/host.js",
+    "src/client.js"
+  ]
+}
