@@ -265,7 +265,7 @@ export function apply(ctx, config = {}) {
       for (const p of changed) if (!seen.has(p)) { seen.add(p); toAdd.push(p) }
       for (const p of candidates) if (!large.has(p) && !seen.has(p)) { seen.add(p); toAdd.push(p) }
       if (toAdd.length > 0) {
-        for (let i = 0; i < toAdd.length; i += 200) await gitRun(root, ['add', '-A', '--'].concat(toAdd.slice(i, i + 200)))
+        for (let i = 0; i < toAdd.length; i += 200) await gitRun(root, ['add', '-A', '-f', '--'].concat(toAdd.slice(i, i + 200)))
       }
       const tree = (await gitRun(root, ['write-tree'])).trim()
       const headRef = 'refs/dsh-rewind/' + rs + '/head'

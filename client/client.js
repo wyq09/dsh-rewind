@@ -36,8 +36,8 @@ window.__ModuleLoader__.load({ id: 'dsh-rewind', factory: (require) => {
   }
 
   function Panel(props) {
-    const sessions = props && props.useSessions ? props.useSessions() : null
-    const sessionId = sessions ? sessions.current : undefined
+    const useSessions = props && props.useSessions
+    const sessionId = useSessions ? useSessions((s) => s && s.current) : undefined
 
     const s = (() => {
       const [, setTick] = react.useState(0)
@@ -61,7 +61,7 @@ window.__ModuleLoader__.load({ id: 'dsh-rewind', factory: (require) => {
 
     react.useEffect(() => {
       refresh()
-      const timer = setInterval(() => { if (store.get().open) refresh() }, 4000)
+      const timer = setInterval(() => { refresh() }, 4000)
       return () => clearInterval(timer)
     }, [refresh])
 
