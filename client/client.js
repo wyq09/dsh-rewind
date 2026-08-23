@@ -157,7 +157,7 @@ window.__ModuleLoader__.load({ id: 'dsh-rewind', factory: (require) => {
             disabled: busy || !sel,
             onClick: () => {
               if (!confirm) { setConfirm(true); setMsg('将把文件还原到 ' + sel + ' — 再点一次确认') }
-              else { setConfirm(false); call('/dsh-rewind/restore&id=' + encodeURIComponent(sel)) }
+              else { setConfirm(false); call('/dsh-rewind/restore?id=' + encodeURIComponent(sel)) }
             },
           }, confirm ? '⚠ 确认还原' : '↺ 还原选中项')),
         msg ? react.createElement('div', { className: 'rw-msg' }, msg) : null,
