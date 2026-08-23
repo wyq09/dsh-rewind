@@ -1,32 +1,50 @@
-// dsh-rewind host half: git-based checkpoints adapted from arpagon/pi-rewind.
-// A shadow git repo at <workspace>/.dsh-rewind snapshots every workspace, even
+// dsh-rewind host: checkpoint/rewind engine for the DeepSeek Harness (dsh),
+// adapted from arpagon/pi-rewind.
+//
+// A shadow git repo at <workspace>/.dsh-rewind snapshots every workspace — even
 // outside a real git repo. One checkpoint per agent turn (tree-dedup), unified
 // diff preview, safe restore, undo/redo stacks, per-session pruning (50 max).
+//
+// Surfaces:
+//   - a `rewind` model tool (targets the calling agent's workspace)
+//   - HTTP endpoints under /dsh-rewind/* for the web client
+//   - automatic checkpoints on `agent/turn-stopping` for every live agent
+
 const MAX_CHECKPOINTS = 50
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const MAX_DIR_FILES = 200
 const IGNORED_DIRS = ['node_modules', '.venv', 'venv', 'env', '.env', 'dist', 'build', '.pytest_cache', '.mypy_cache', '.cache', '.tox', '__pycache__']
 const MUTATING_TOOLS = ['write', 'edit', 'bash']
-return {
-  name: 'dsh-rewind',
-  inject: ['timer'],
-  apply(ctx) {
-    const sp = ctx.get('subprocess')
-    const fs = ctx.get('fs')
-    const agents = ctx.get('agents')
-    if (sp === undefined) {
-      console.error('dsh-rewind requires the subprocess service')
-      return
+
+export const name = 'dsh-rewind'
+export const inject = []
+
+export function apply(ctx, config = {}) {
+  if (typeof ctx.inject !== 'function') return
+
+  ctx.inject(['subprocess', 'fs', 'tools', 'webServer', 'agents'], (scope) => {
+    const sp = scope.subprocess
+    const fs = scope.fs
+    const tools = scope.tools
+    const webServer = scope.webServer
+    const agents = scope.agents
+
+    // ---- shared state ----
+    const S = {
+      gitPath: '',
+      queue: Promise.resolve(),
+      inited: new Set(),          // workspace roots already initialized
+      sessionWorkspace: new Map(), // sessionId -> cwd
+      turnLabel: new Map(),        // sessionId -> { prompt, tools }
     }
-    const S = { root: '', sessionId: '', gitPath: '', ready: false, error: '', queue: Promise.resolve() }
     let gitPathPromise = null
     let teePathPromise = null
     let catPathPromise = null
     let rmPathPromise = null
-    let turnPrompt = ''
-    let turnTools = []
-    const log = (...a) => console.log('dsh-rewind', ...a)
-    const warn = (...a) => console.error('dsh-rewind', ...a)
+
+    const log = (...a) => console.log('[dsh-rewind]', ...a)
+    const warn = (...a) => console.error('[dsh-rewind]', ...a)
+
     const j = (root, ...parts) => (root.replace(/\/+$/, '') + '/' + parts.join('/')).replace(/\/{2,}/g, '/')
     const sanitize = (s) => String(s === null || s === undefined ? '' : s).replace(/[\r\n\t\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim()
     const trunc = (s, n) => { s = String(s === null || s === undefined ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s }
@@ -37,6 +55,7 @@ return {
     const skipPath = (p) => p === '.git' || p.indexOf('.git/') === 0 || p === '.dsh-rewind' || p.indexOf('.dsh-rewind/') === 0 || p === '.DS_Store'
     const iso = (t) => new Date(t).toISOString()
     const enqueue = (fn) => { const p = S.queue.then(fn); S.queue = p.catch(() => {}); return p }
+
     async function resolveGit() {
       if (gitPathPromise === null) gitPathPromise = sp.resolveExecutable('git').catch((e) => { gitPathPromise = null; throw e })
       return gitPathPromise
@@ -53,6 +72,7 @@ return {
       if (rmPathPromise === null) rmPathPromise = sp.resolveExecutable('rm').catch((e) => { rmPathPromise = null; throw e })
       return rmPathPromise
     }
+
     function runCmd(bin, args, root, opts) {
       const o = opts || {}
       const cap = o.cap === undefined ? 1024 * 1024 : o.cap
@@ -76,12 +96,14 @@ return {
         return out.text
       })
     }
+
     function gitRun(root, args, opts) {
       const o = opts || {}
       if (S.gitPath === '') throw new Error('git not resolved')
       const env = { GIT_DIR: j(root, '.dsh-rewind', 'git'), GIT_WORK_TREE: root, GIT_INDEX_FILE: j(root, '.dsh-rewind', 'index') }
       return runCmd(S.gitPath, ['-c', 'core.quotepath=false'].concat(args), root, Object.assign({}, o, { env: Object.assign({}, env, o.env || {}) }))
     }
+
     async function writeFile(root, rel, content) {
       const tee = await resolveTee()
       await runCmd(tee, [j(root, rel)], root, { input: content })
@@ -94,6 +116,7 @@ return {
       const rm = await resolveRm()
       await runCmd(rm, ['-f', j(root, rel)], root, {})
     }
+
     async function readMeta(root) {
       try {
         const parsed = JSON.parse(await readFile(root, '.dsh-rewind/meta.json'))
@@ -104,6 +127,7 @@ return {
     async function writeMeta(root, meta) {
       try { await writeFile(root, '.dsh-rewind/meta.json', JSON.stringify(meta)) } catch (e) { warn('meta write failed', String(e && e.message || e)) }
     }
+
     async function commitTree(root, tree, parent, info) {
       const time = info.time || Date.now()
       const lines = [
@@ -126,14 +150,13 @@ return {
       if (parent) argv.push('-p', parent)
       return (await gitRun(root, argv, { input: lines + '\n', env })).trim()
     }
+
     async function pruneForeign(root, sid) {
       const live = new Set()
-      if (agents) {
-        try {
-          const list = typeof agents.list === 'function' ? agents.list() : []
-          if (Array.isArray(list)) for (const a of list) if (a && a.id !== undefined) live.add(refSid(String(a.id)))
-        } catch (e) {}
-      }
+      try {
+        const list = typeof agents.list === 'function' ? agents.list() : []
+        if (Array.isArray(list)) for (const a of list) if (a && a.id !== undefined) live.add(refSid(String(a.id)))
+      } catch (e) {}
       live.add(refSid(String(sid)))
       let out = ''
       try { out = await gitRun(root, ['for-each-ref', '--format=%(refname)', 'refs/dsh-rewind/'], { cap: 4 * 1024 * 1024 }) } catch (e) { return }
@@ -143,6 +166,7 @@ return {
         if (token && !live.has(token)) { try { await gitRun(root, ['update-ref', '-d', ref]) } catch (e) {} }
       }
     }
+
     async function initWorkspace(root, sid) {
       if (S.gitPath === '') S.gitPath = await resolveGit()
       const metaDir = j(root, '.dsh-rewind')
@@ -178,6 +202,16 @@ return {
       try { await gitRun(root, ['symbolic-ref', 'HEAD', 'refs/dsh-rewind/' + rs + '/head']) } catch (e) {}
       return true
     }
+
+    async function ensureReady(root, sid) {
+      if (S.gitPath === '') S.gitPath = await resolveGit()
+      if (!S.inited.has(root)) {
+        await initWorkspace(root, sid)
+        S.inited.add(root)
+      }
+      return true
+    }
+
     function parseStatus(out) {
       const entries = []
       for (const rec of out.split('\0')) {
@@ -189,6 +223,7 @@ return {
       }
       return entries
     }
+
     async function checkpoint(root, sid, opts) {
       const o = opts || {}
       const trigger = o.trigger || 'manual'
@@ -212,18 +247,16 @@ return {
       const candidates = untrackedAll.filter((p) => !shouldIgnore(p) && !bigDirs.has(parentDir(p)))
       const skippedLarge = []
       const large = new Set()
-      if (fs !== undefined) {
-        for (let i = 0; i < candidates.length; i += 100) {
-          const chunk = candidates.slice(i, i + 100)
-          const results = await Promise.allSettled(chunk.map(async (p) => {
-            const t = await fs.resolve(j(root, p))
-            return { p, info: await fs.stat(t) }
-          }))
-          for (const r of results) {
-            if (r.status === 'fulfilled' && r.value && r.value.info && typeof r.value.info.size === 'number' && r.value.info.size > MAX_FILE_BYTES) {
-              skippedLarge.push(r.value.p)
-              large.add(r.value.p)
-            }
+      for (let i = 0; i < candidates.length; i += 100) {
+        const chunk = candidates.slice(i, i + 100)
+        const results = await Promise.allSettled(chunk.map(async (p) => {
+          const t = await fs.resolve(j(root, p))
+          return { p, info: await fs.stat(t) }
+        }))
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value && r.value.info && typeof r.value.info.size === 'number' && r.value.info.size > MAX_FILE_BYTES) {
+            skippedLarge.push(r.value.p)
+            large.add(r.value.p)
           }
         }
       }
@@ -259,6 +292,7 @@ return {
       await writeMeta(root, meta)
       return { skipped: false, checkpoint: { id, sha: commit, tree, trigger, turn, label, time, files: toAdd.length } }
     }
+
     function parseCommit(msg, id, sha) {
       const get = (k) => { const m = msg.match(new RegExp('^' + k + ' (.*)$', 'm')); return m ? m[1].trim() : '' }
       const arr = (k) => { try { const a = JSON.parse(get(k) || '[]'); return Array.isArray(a) ? a : [] } catch (e) { return [] } }
@@ -275,6 +309,7 @@ return {
         skippedDirs: arr('largeDirs'),
       }
     }
+
     async function listCheckpoints(root, sid) {
       const meta = await readMeta(root)
       const sess = meta.sessions[sid]
@@ -296,6 +331,7 @@ return {
       cps.sort((a, b) => a.time - b.time)
       return cps
     }
+
     async function restoreTree(root, sid, cp) {
       await rmFile(root, '.dsh-rewind/index.lock')
       await gitRun(root, ['read-tree', '--reset', '-u', cp.tree])
@@ -316,6 +352,7 @@ return {
         for (let i = 0; i < toRemove.length; i += 200) { try { await gitRun(root, ['clean', '-f', '--'].concat(toRemove.slice(i, i + 200))) } catch (e) {} }
       } catch (e) { warn('safe-clean skipped', String(e && e.message || e)) }
     }
+
     async function doRestore(root, sid, id) {
       const meta = await readMeta(root)
       const sess = meta.sessions[sid]
@@ -336,6 +373,7 @@ return {
       await writeMeta(root, m2)
       return { restored: id, before: beforeId }
     }
+
     async function doUndoRedo(root, sid, which) {
       const meta = await readMeta(root)
       const sess = meta.sessions[sid]
@@ -352,6 +390,7 @@ return {
       await writeMeta(root, meta)
       return { action: which, restored: target }
     }
+
     async function diffPreview(root, sid, id) {
       const cps = await listCheckpoints(root, sid)
       const cp = cps.find((c) => c.id === id)
@@ -365,157 +404,182 @@ return {
       if (diff.length >= 96 * 1024 - 2048) truncated = true
       return { id, label: cp.label, turn: cp.turn, time: cp.time, stat, diff, truncated }
     }
-    async function ensureReady() {
-      if (!S.root) throw new Error('dsh-rewind has not detected a session workspace yet')
-      if (!S.ready) {
-        await initWorkspace(S.root, S.sessionId)
-        S.ready = true
-        S.error = ''
-      }
-      return true
-    }
-    function captureAgent(a) {
-      if (!a || typeof a !== 'object') return
-      let sid = ''
-      let cwd = ''
+
+    function trackAgent(agent) {
       try {
-        if (a.id !== undefined) sid = String(a.id)
-        if (a.session && a.session.header && typeof a.session.header.cwd === 'string') cwd = a.session.header.cwd
+        if (!agent || typeof agent !== 'object') return
+        const sid = agent.id !== undefined ? String(agent.id) : ''
+        const cwd = agent.session && agent.session.header ? agent.session.header.cwd : ''
+        if (sid && cwd) S.sessionWorkspace.set(sid, cwd)
       } catch (e) {}
-      if (!sid && !cwd) return
-      if (S.sessionId === '' && sid) S.sessionId = sid
-      const match = sid === S.sessionId
-      if (match && !S.root && cwd) { S.root = cwd; log('workspace', cwd) }
     }
-    function maybeInit() {
-      if (!S.root || S.ready) return
-      enqueue(async () => {
-        try {
-          await initWorkspace(S.root, S.sessionId)
-          S.ready = true
-          S.error = ''
-          const r = await checkpoint(S.root, S.sessionId, { trigger: 'resume', turn: 0, label: 'session start' })
-          log(r.skipped ? 'baseline unchanged, no checkpoint yet' : 'baseline checkpoint ' + r.checkpoint.id)
-        } catch (e) { S.error = String(e && e.message || e); warn('init failed', S.error) }
-      }).catch(() => {})
-    }
-    if (agents) {
-      try { if (typeof agents.currentInitiator === 'function') captureAgent(agents.currentInitiator()) } catch (e) {}
-      if (!S.root || !S.sessionId) {
-        try {
-          const list = typeof agents.list === 'function' ? agents.list() : []
-          if (Array.isArray(list) && list.length === 1) captureAgent(list[0])
-        } catch (e) {}
+
+    async function workspaceFor(sessionId) {
+      const sid = String(sessionId || '')
+      if (S.sessionWorkspace.has(sid)) {
+        const root = S.sessionWorkspace.get(sid)
+        if (root) return { root, sid }
       }
+      try {
+        const a = typeof agents.get === 'function' ? agents.get(sid) : undefined
+        const cwd = a && a.session && a.session.header ? a.session.header.cwd : ''
+        if (cwd) { S.sessionWorkspace.set(sid, cwd); return { root: cwd, sid } }
+      } catch (e) {}
+      return null
     }
-    if (S.root) log('session', S.sessionId, 'workspace', S.root)
-    ctx.on('agent/created', (p) => { captureAgent(p && p.agent); maybeInit() })
-    ctx.on('agent/status', (p) => { captureAgent(p && p.agent); maybeInit() })
-    ctx.on('agent/session-start', (p) => { captureAgent(p && p.agent); maybeInit() })
+
+    // ---- automatic checkpoints (every live agent) ----
+    ctx.on('agent/created', (p) => { trackAgent(p && p.agent) })
+    ctx.on('agent/status', (p) => { trackAgent(p && p.agent) })
+    ctx.on('agent/session-start', (p) => { trackAgent(p && p.agent) })
     ctx.on('agent/inbox/claimed', (p) => {
-      captureAgent(p && p.agent)
-      if (!p || !p.agent || String(p.agent.id) !== S.sessionId) return
+      if (!p || !p.agent) return
+      const sid = String(p.agent.id)
       const m = p.message
+      let prompt = ''
       if (m && Array.isArray(m.content)) {
-        for (const b of m.content) if (b && b.type === 'text' && typeof b.text === 'string') { turnPrompt = trunc(b.text, 90); break }
+        for (const b of m.content) if (b && b.type === 'text' && typeof b.text === 'string') { prompt = trunc(b.text, 90); break }
       }
-      turnTools = []
+      S.turnLabel.set(sid, { prompt, tools: [] })
     })
     ctx.on('tools/result', (exec) => {
-      captureAgent(exec && exec.agent)
-      if (!exec || !exec.agent || String(exec.agent.id) !== S.sessionId) return
+      if (!exec || !exec.agent) return
+      const sid = String(exec.agent.id)
       if (MUTATING_TOOLS.indexOf(exec.name) === -1) return
+      const label = S.turnLabel.get(sid) || { prompt: '', tools: [] }
       const args = exec.arguments
       let trail = exec.name
       if (args && typeof args === 'object' && typeof args.file_path === 'string') trail += ':' + trunc(base(args.file_path), 24)
-      turnTools.push(trail)
-      if (turnTools.length > 4) turnTools.shift()
+      label.tools.push(trail)
+      if (label.tools.length > 4) label.tools.shift()
+      S.turnLabel.set(sid, label)
     })
     ctx.on('agent/turn-stopping', async (p) => {
-      captureAgent(p && p.agent)
-      if (!p || !p.agent || String(p.agent.id) !== S.sessionId) return
+      if (!p || !p.agent) return
+      trackAgent(p.agent)
+      const sid = String(p.agent.id)
+      const root = S.sessionWorkspace.get(sid)
+      if (!root) return
+      const label = S.turnLabel.get(sid)
+      const parts = []
+      if (label && label.prompt) parts.push('"' + trunc(label.prompt, 60) + '"')
+      if (label && label.tools && label.tools.length) parts.push(label.tools.join(', '))
+      const desc = trunc(parts.join(' → '), 160) || 'turn checkpoint'
       try {
         await enqueue(async () => {
-          await ensureReady()
-          const parts = []
-          if (turnPrompt) parts.push('"' + trunc(turnPrompt, 60) + '"')
-          if (turnTools.length) parts.push(turnTools.join(', '))
-          const label = trunc(parts.join(' → '), 160) || 'turn checkpoint'
-          const r = await checkpoint(S.root, S.sessionId, { trigger: 'turn', turn: p.turn || 0, label })
-          if (!r.skipped) log('turn checkpoint', r.checkpoint.id, r.checkpoint.files + ' files')
+          await ensureReady(root, sid)
+          const r = await checkpoint(root, sid, { trigger: 'turn', turn: p.turn || 0, label: desc })
+          if (!r.skipped) log('turn checkpoint', sid, r.checkpoint.id, r.checkpoint.files + ' files')
         })
-      } catch (e) { warn('turn checkpoint failed', String(e && e.message || e)) }
+      } catch (e) { warn('turn checkpoint failed', sid, String(e && e.message || e)) }
     })
-    ctx.interval(() => {
-      if (!S.root || !S.ready || S.error) return
-      enqueue(async () => {
-        try {
-          const r = await checkpoint(S.root, S.sessionId, { trigger: 'timer', turn: 0, label: 'periodic checkpoint' })
-          if (!r.skipped) log('timer checkpoint', r.checkpoint.id, r.checkpoint.files + ' files')
-        } catch (e) { warn('timer checkpoint failed', String(e && e.message || e)) }
-      }).catch(() => {})
-    }, 60000)
-    harness.handle('state', async () => {
-      return await enqueue(async () => {
-        if (!S.root) return { ok: true, ready: false, reason: 'no-workspace', root: '', sessionId: S.sessionId, checkpoints: [], undoCount: 0, redoCount: 0, error: S.error || '' }
-        await ensureReady()
-        const cps = await listCheckpoints(S.root, S.sessionId)
-        const meta = await readMeta(S.root)
-        const sess = meta.sessions[S.sessionId]
-        return {
-          ok: true, ready: true, root: S.root, sessionId: S.sessionId,
-          checkpoints: cps.map((c) => ({ id: c.id, sha: c.sha, trigger: c.trigger, turn: c.turn, label: c.label, time: c.time, files: c.files })),
-          undoCount: sess && sess.undo ? sess.undo.length : 0,
-          redoCount: sess && sess.redo ? sess.redo.length : 0,
-          error: S.error || '',
-        }
-      })
+
+    // ---- HTTP endpoints for the web client ----
+    const json = (res, status, body) => {
+      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      res.end(JSON.stringify(body))
+    }
+    const route = (path, handler) => webServer.register({ kind: 'exact', path, handler })
+    const params = (req) => new URL(req.url, 'http://localhost').searchParams
+    const wsOr404 = async (req, res) => {
+      const ws = await workspaceFor(params(req).get('session') || '')
+      if (!ws) { json(res, 200, { ok: true, ready: false, reason: 'no-session', checkpoints: [], undoCount: 0, redoCount: 0 }); return null }
+      return ws
+    }
+
+    route('/dsh-rewind/state', async (req, res) => {
+      try {
+        const ws = await wsOr404(req, res)
+        if (!ws) return
+        await enqueue(async () => {
+          await ensureReady(ws.root, ws.sid)
+          const cps = await listCheckpoints(ws.root, ws.sid)
+          const meta = await readMeta(ws.root)
+          const sess = meta.sessions[ws.sid]
+          json(res, 200, {
+            ok: true, ready: true, root: ws.root, sessionId: ws.sid,
+            checkpoints: cps.map((c) => ({ id: c.id, sha: c.sha, trigger: c.trigger, turn: c.turn, label: c.label, time: c.time, files: c.files })),
+            undoCount: sess && sess.undo ? sess.undo.length : 0,
+            redoCount: sess && sess.redo ? sess.redo.length : 0,
+            error: '',
+          })
+        })
+      } catch (e) { json(res, 500, { ok: false, message: String(e && e.message || e) }) }
     })
-    harness.handle('checkpoint', async () => {
-      return await enqueue(async () => {
-        await ensureReady()
-        const r = await checkpoint(S.root, S.sessionId, { trigger: 'manual', turn: 0, label: 'manual checkpoint' })
-        return r.skipped ? { ok: true, skipped: true, message: r.reason } : { ok: true, skipped: false, message: 'checkpoint ' + r.checkpoint.id + ' (' + r.checkpoint.files + ' files)' }
-      })
+
+    route('/dsh-rewind/checkpoint', async (req, res) => {
+      try {
+        const ws = await wsOr404(req, res)
+        if (!ws) return
+        await enqueue(async () => {
+          await ensureReady(ws.root, ws.sid)
+          const r = await checkpoint(ws.root, ws.sid, { trigger: 'manual', turn: 0, label: 'manual checkpoint' })
+          json(res, 200, r.skipped ? { ok: true, skipped: true, message: r.reason } : { ok: true, skipped: false, message: 'checkpoint ' + r.checkpoint.id + ' (' + r.checkpoint.files + ' files)' })
+        })
+      } catch (e) { json(res, 500, { ok: false, message: String(e && e.message || e) }) }
     })
-    harness.handle('preview', async (args) => {
-      return await enqueue(async () => {
-        await ensureReady()
-        const id = args && args.id ? String(args.id) : ''
-        if (!id) throw new Error('preview needs a checkpoint id')
-        const d = await diffPreview(S.root, S.sessionId, id)
-        return { ok: true, id: d.id, label: d.label, turn: d.turn, time: d.time, stat: d.stat, diff: d.diff, truncated: d.truncated }
-      })
+
+    route('/dsh-rewind/preview', async (req, res) => {
+      try {
+        const ws = await wsOr404(req, res)
+        if (!ws) return
+        const id = params(req).get('id') || ''
+        await enqueue(async () => {
+          await ensureReady(ws.root, ws.sid)
+          const d = await diffPreview(ws.root, ws.sid, id)
+          json(res, 200, { ok: true, id: d.id, label: d.label, turn: d.turn, time: d.time, stat: d.stat, diff: d.diff, truncated: d.truncated })
+        })
+      } catch (e) { json(res, 500, { ok: false, message: String(e && e.message || e) }) }
     })
-    harness.handle('restore', async (args) => {
-      return await enqueue(async () => {
-        await ensureReady()
-        const id = args && args.id ? String(args.id) : ''
-        if (!id) throw new Error('restore needs a checkpoint id')
-        const r = await doRestore(S.root, S.sessionId, id)
-        return { ok: true, message: 'restored to ' + r.restored + ' (safety checkpoint ' + r.before + ')' }
-      })
+
+    route('/dsh-rewind/restore', async (req, res) => {
+      try {
+        const ws = await wsOr404(req, res)
+        if (!ws) return
+        const id = params(req).get('id') || ''
+        await enqueue(async () => {
+          await ensureReady(ws.root, ws.sid)
+          const r = await doRestore(ws.root, ws.sid, id)
+          json(res, 200, { ok: true, message: 'restored to ' + r.restored + ' (safety checkpoint ' + r.before + ')' })
+        })
+      } catch (e) { json(res, 500, { ok: false, message: String(e && e.message || e) }) }
     })
-    harness.handle('undo', async () => {
-      return await enqueue(async () => {
-        await ensureReady()
-        const r = await doUndoRedo(S.root, S.sessionId, 'undo')
-        return { ok: true, message: 'undid last rewind → ' + r.restored }
-      })
+
+    route('/dsh-rewind/undo', async (req, res) => {
+      try {
+        const ws = await wsOr404(req, res)
+        if (!ws) return
+        await enqueue(async () => {
+          await ensureReady(ws.root, ws.sid)
+          const r = await doUndoRedo(ws.root, ws.sid, 'undo')
+          json(res, 200, { ok: true, message: 'undid last rewind → ' + r.restored })
+        })
+      } catch (e) { json(res, 500, { ok: false, message: String(e && e.message || e) }) }
     })
-    harness.handle('redo', async () => {
-      return await enqueue(async () => {
-        await ensureReady()
-        const r = await doUndoRedo(S.root, S.sessionId, 'redo')
-        return { ok: true, message: 'redid → ' + r.restored }
-      })
+
+    route('/dsh-rewind/redo', async (req, res) => {
+      try {
+        const ws = await wsOr404(req, res)
+        if (!ws) return
+        await enqueue(async () => {
+          await ensureReady(ws.root, ws.sid)
+          const r = await doUndoRedo(ws.root, ws.sid, 'redo')
+          json(res, 200, { ok: true, message: 'redid → ' + r.restored })
+        })
+      } catch (e) { json(res, 500, { ok: false, message: String(e && e.message || e) }) }
     })
-    harness.registerTool(ctx, harness.defineTool({
+
+    // ---- model tool ----
+    tools.register({
       name: 'rewind',
       description: 'Checkpoint/rewind for the DSH session workspace (adapted from pi-rewind). Git-based snapshots are taken automatically after each agent turn that changes files. Actions: list - show checkpoints; preview - show the unified diff that restoring a checkpoint id would apply; restore - restore workspace files to a checkpoint (a safety checkpoint is created first); undo - undo the last restore; redo - redo it; checkpoint - snapshot the workspace now.',
       parameters: {
-        action: { type: 'string', enum: ['list', 'preview', 'restore', 'undo', 'redo', 'checkpoint'], description: 'Which rewind operation to run.', required: true },
-        id: { type: 'string', description: 'Checkpoint id, required for preview and restore.' },
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['list', 'preview', 'restore', 'undo', 'redo', 'checkpoint'], description: 'Which rewind operation to run.' },
+          id: { type: 'string', description: 'Checkpoint id, required for preview and restore.' },
+        },
+        required: ['action'],
       },
       output: {
         schema: { type: 'string' },
@@ -524,8 +588,8 @@ return {
       async execute(args, exec) {
         const run = async () => {
           const agent = exec && exec.agent
-          let root = S.root
-          let sid = S.sessionId
+          let root = ''
+          let sid = ''
           try {
             if (agent) {
               if (agent.id !== undefined) sid = String(agent.id)
@@ -533,9 +597,8 @@ return {
             }
           } catch (e) {}
           if (!root) return 'dsh-rewind: no workspace detected for this session yet.'
-          if (agent) captureAgent(agent)
-          if (S.gitPath === '') S.gitPath = await resolveGit()
-          await initWorkspace(root, sid)
+          if (agent) trackAgent(agent)
+          await ensureReady(root, sid)
           const action = args && args.action ? String(args.action) : 'list'
           const id = args && args.id ? String(args.id) : ''
           if (action === 'list') {
@@ -567,7 +630,6 @@ return {
         }
         try { return await enqueue(run) } catch (e) { return 'dsh-rewind error: ' + String(e && e.message || e) }
       },
-    }))
-    maybeInit()
-  },
+    })
+  })
 }

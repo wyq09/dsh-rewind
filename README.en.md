@@ -1,6 +1,6 @@
 # dsh-rewind
 
-Checkpoint / rewind extension for the **DeepSeek Harness (DSH)** coding agent, adapted from [arpagon/pi-rewind](https://github.com/arpagon/pi-rewind).
+Checkpoint / rewind extension for the **DeepSeek Harness (DSH)** web UI, adapted from [arpagon/pi-rewind](https://github.com/arpagon/pi-rewind).
 
 Git-based snapshots of the session workspace, one checkpoint per agent turn, with a unified diff preview, safe restore, and undo/redo stacks — plus a browser timeline panel and a `rewind` model tool.
 
@@ -8,7 +8,7 @@ Git-based snapshots of the session workspace, one checkpoint per agent turn, wit
 
 ## Features
 
-- **Automatic checkpoints** — one snapshot after each agent turn that changes files (`agent/turn-stopping`), with a 60 s timer fallback.
+- **Automatic checkpoints** — one snapshot after each agent turn that changes files (`agent/turn-stopping`).
 - **Smart dedup** — read-only turns create no checkpoint (tree-hash comparison).
 - **Descriptive labels** — `"<user prompt>" → write:file.ts, edit:other.ts`.
 - **Diff preview before restore** — `git diff --stat` + unified patch, oriented as "what restoring would apply".
@@ -18,24 +18,45 @@ Git-based snapshots of the session workspace, one checkpoint per agent turn, wit
 - **Works anywhere** — a shadow git repo at `<workspace>/.dsh-rewind/` snapshots even non-git workspaces and never touches a real repo's refs/branches.
 - **Per-session pruning** — 50 checkpoints max per session; safety checkpoints are exempt.
 - **Refs survive restarts** — metadata is also recoverable from commit messages.
-- **UI** — draggable floating pill + timeline panel (`shell.overlay`) and a run-card strip (`tool.view.cordis`).
 
 ## Install
 
-`dsh-rewind` is a **dynamic Cordis plugin** — it is installed by loading `src/host.js` (Host half) and `src/client.js` (Client half) as one Package:
+> Requires DeepSeek Harness (`dsh`), `web` profile. Host needs `git` (plus `mkdir` / `tee` / `cat` / `rm`).
 
-1. `cordis_define` — new Plugin (any 3–6 lowercase-letter `idPrefix`), paste the two file contents as `code.host` / `code.client`.
-2. `cordis_run` — activate the returned `packageId`. Approve the Client half in the Run card.
+```bash
+# from npm (once published)
+dsh plugin --profile web add dsh-rewind
 
-Both files are plain-JavaScript **function bodies** (each `return`s a Cordis Plugin object). They use only the DSH Host/Client sandbox surface: `subprocess`, `fs`, `agents`, `timer`, `harness`, `slots`, `styles`, `React`, `host` — no Node/browser globals, no bundler.
+# restart
+dsh web
+```
 
-> Dynamic plugins are process-local: re-install after a process restart.
+Local / manual install (unpublished): place this repo at `~/.dsh/profiles/web/dsh-rewind`, add `"dsh-rewind": "file:./dsh-rewind"` to `~/.dsh/profiles/web/package.json` `dependencies`, append `"dsh-rewind"` to `dsh.profile.bundles`, then restart `dsh web` and hard-refresh the page.
+
+Uninstall:
+
+```bash
+dsh plugin --profile web remove dsh-rewind
+dsh web
+```
+
+## Standard plugin layout
+
+```
+dsh-rewind/
+├── package.json        # dsh.bundle / dsh.client manifest
+├── cordis.patch.yml    # bundle mount declaration (inserts one host row)
+├── dsh/
+│   └── index.js        # host: git engine + HTTP endpoints + rewind tool
+└── client/
+    └── client.js       # client: shell.overlay floating timeline panel
+```
 
 ## Usage
 
 ### Browser UI
 
-- Bottom-right floating pill **`⏪ N`** (draggable) opens the timeline; the run-card strip opens it too.
+- Bottom-right floating pill **`⏪ N`** (draggable) opens the timeline panel.
 - Click a checkpoint to preview its diff; buttons: **Checkpoint now**, **Undo**, **Redo**, **Restore selected** (two-click confirm).
 
 ### Model tool

@@ -1,0 +1,4 @@
+# dsh-rewind: mount the checkpoint/rewind engine into the host composition.
+- insert:
+    - id: dsh-rewind
+      name: 'dsh-rewind'

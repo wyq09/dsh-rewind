@@ -1,11 +1,31 @@
 {
   "name": "dsh-rewind",
   "version": "1.0.0",
-  "description": "Checkpoint/rewind extension for DeepSeek Harness (DSH), adapted from pi-rewind.",
+  "description": "Checkpoint/rewind extension for the DeepSeek Harness (dsh) web UI, adapted from pi-rewind. 检查点/回退插件：每个 agent 回合自动 git 快照，diff 预览后一键还原，支持撤销/重做。",
+  "type": "module",
+  "main": "./dsh/index.js",
+  "exports": {
+    ".": "./dsh/index.js",
+    "./client": "./client/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["dsh", "client", "cordis.patch.yml"],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "rewind",
+    "checkpoint",
+    "undo",
+    "回退",
+    "检查点"
+  ],
   "license": "MIT",
-  "private": true,
-  "files": [
-    "src/host.js",
-    "src/client.js"
-  ]
+  "engines": {
+    "node": ">=18"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "inject": ["@deepseek-ai/dsh-client-ui-layout"], "platform": "web" }
+  }
 }
