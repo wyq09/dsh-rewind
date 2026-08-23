@@ -2,13 +2,14 @@
 
 Checkpoint / rewind extension for the **DeepSeek Harness (DSH)** web UI, adapted from [arpagon/pi-rewind](https://github.com/arpagon/pi-rewind).
 
-Git-based snapshots of the session workspace, one checkpoint per agent turn, with a unified diff preview, safe restore, and undo/redo stacks — plus a browser timeline panel and a `rewind` model tool.
+Git-based snapshots of the session workspace, including the state before the first agent turn, with a unified diff preview, safe restore, and undo/redo stacks — plus a browser timeline panel and a `rewind` model tool.
 
 > 中文说明见 [README.md](./README.md)。
 
 ## Features
 
-- **Automatic checkpoints** — one snapshot after each agent turn that changes files (`agent/turn-stopping`).
+- **A real S0 baseline** — captures the workspace before the first agent turn, so the first change can actually be undone.
+- **Automatic checkpoints** — checks at turn start and snapshots after each agent turn that changes files (`agent/turn-stopping`).
 - **Smart dedup** — read-only turns create no checkpoint (tree-hash comparison).
 - **Descriptive labels** — `"<user prompt>" → write:file.ts, edit:other.ts`.
 - **Diff preview before restore** — `git diff --stat` + unified patch, oriented as "what restoring would apply".
@@ -24,14 +25,18 @@ Git-based snapshots of the session workspace, one checkpoint per agent turn, wit
 > Requires DeepSeek Harness (`dsh`), `web` profile. Host needs `git` (plus `mkdir` / `tee` / `cat` / `rm`).
 
 ```bash
-# from npm (once published)
-dsh plugin --profile web add dsh-rewind
+# From this checkout (recommended for the current development version)
+cd /absolute/path/to/dsh-rewind
+dsh plugin --profile web add .
+
+# Or from GitHub after the release is pushed
+dsh plugin --profile web add github:wyq09/dsh-rewind
 
 # restart
 dsh web
 ```
 
-Local / manual install (unpublished): place this repo at `~/.dsh/profiles/web/dsh-rewind`, add `"dsh-rewind": "file:./dsh-rewind"` to `~/.dsh/profiles/web/package.json` `dependencies`, append `"dsh-rewind"` to `dsh.profile.bundles`, then restart `dsh web` and hard-refresh the page.
+Verify the host independently of the UI with `curl http://127.0.0.1:<port>/dsh-rewind/health`. See the Chinese [README.md](./README.md) for the complete first-principles install, verification, usage, and troubleshooting guide.
 
 Uninstall:
 
@@ -47,7 +52,8 @@ dsh-rewind/
 ├── package.json        # dsh.bundle / dsh.client manifest
 ├── cordis.patch.yml    # bundle mount declaration (inserts one host row)
 ├── dsh/
-│   └── index.js        # host: git engine + HTTP endpoints + rewind tool
+│   ├── index.js        # host: git engine + HTTP endpoints + rewind tool
+│   └── prompt.js       # model-facing tool instructions
 └── client/
     └── client.js       # client: shell.overlay floating timeline panel
 ```
@@ -74,7 +80,7 @@ The agent registers a `rewind` tool. Natural-language requests route to it:
 
 ### Data location
 
-`<workspace>/.dsh-rewind/` — a shadow git repo plus `meta.json`. Excluded from snapshots via `info/exclude`.
+`<workspace>/.dsh-rewind/` — a shadow git repo plus `meta.json`. Excluded from its own snapshots via `info/exclude`. Add `.dsh-rewind/` to the real project's `.gitignore` or `.git/info/exclude`.
 
 ## Limitations
 

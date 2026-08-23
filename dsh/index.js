@@ -10,6 +10,8 @@
 //   - HTTP endpoints under /dsh-rewind/* for the web client
 //   - automatic checkpoints on `agent/turn-stopping` for every live agent
 
+import { REWIND_TOOL_DESCRIPTION } from './prompt.js'
+
 const MAX_CHECKPOINTS = 50
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const MAX_DIR_FILES = 200
@@ -17,12 +19,11 @@ const IGNORED_DIRS = ['node_modules', '.venv', 'venv', 'env', '.env', 'dist', 'b
 const MUTATING_TOOLS = ['write', 'edit', 'bash']
 
 export const name = 'dsh-rewind'
-export const inject = []
+export const version = '1.1.0'
+export const inject = ['subprocess', 'fs', 'tools', 'webServer', 'agents']
 
 export function apply(ctx, config = {}) {
-  if (typeof ctx.inject !== 'function') return
-
-  ctx.inject(['subprocess', 'fs', 'tools', 'webServer', 'agents'], (scope) => {
+    const scope = ctx
     const sp = scope.subprocess
     const fs = scope.fs
     const tools = scope.tools
@@ -33,7 +34,7 @@ export function apply(ctx, config = {}) {
     const S = {
       gitPath: '',
       queue: Promise.resolve(),
-      inited: new Set(),          // workspace roots already initialized
+      inited: new Set(),          // workspace + session pairs already initialized
       sessionWorkspace: new Map(), // sessionId -> cwd
       turnLabel: new Map(),        // sessionId -> { prompt, tools }
     }
@@ -44,6 +45,7 @@ export function apply(ctx, config = {}) {
 
     const log = (...a) => console.log('[dsh-rewind]', ...a)
     const warn = (...a) => console.error('[dsh-rewind]', ...a)
+    log('host loaded', 'v' + version)
 
     const j = (root, ...parts) => (root.replace(/\/+$/, '') + '/' + parts.join('/')).replace(/\/{2,}/g, '/')
     const sanitize = (s) => String(s === null || s === undefined ? '' : s).replace(/[\r\n\t\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -137,6 +139,7 @@ export function apply(ctx, config = {}) {
         'turn ' + info.turn,
         'label ' + sanitize(info.label || ''),
         'created ' + time,
+        'tree ' + tree,
         'files ' + (info.files || 0),
         'untracked ' + JSON.stringify(info.untracked || []),
         'largeFiles ' + JSON.stringify(info.skippedLarge || []),
@@ -149,22 +152,6 @@ export function apply(ctx, config = {}) {
       const argv = ['commit-tree', tree]
       if (parent) argv.push('-p', parent)
       return (await gitRun(root, argv, { input: lines + '\n', env })).trim()
-    }
-
-    async function pruneForeign(root, sid) {
-      const live = new Set()
-      try {
-        const list = typeof agents.list === 'function' ? agents.list() : []
-        if (Array.isArray(list)) for (const a of list) if (a && a.id !== undefined) live.add(refSid(String(a.id)))
-      } catch (e) {}
-      live.add(refSid(String(sid)))
-      let out = ''
-      try { out = await gitRun(root, ['for-each-ref', '--format=%(refname)', 'refs/dsh-rewind/'], { cap: 4 * 1024 * 1024 }) } catch (e) { return }
-      for (const ref of out.split('\n')) {
-        if (!ref) continue
-        const token = ref.split('/')[2]
-        if (token && !live.has(token)) { try { await gitRun(root, ['update-ref', '-d', ref]) } catch (e) {} }
-      }
     }
 
     async function initWorkspace(root, sid) {
@@ -191,23 +178,41 @@ export function apply(ctx, config = {}) {
       await rmFile(root, '.dsh-rewind/index.lock')
       try { await writeFile(root, '.dsh-rewind/git/info/exclude', '.git\n.dsh-rewind\n.DS_Store\n') } catch (e) { warn('exclude write failed', String(e && e.message || e)) }
       try { await gitRun(root, ['rm', '-r', '--cached', '-q', '--ignore-unmatch', '--', '.dsh-rewind', '.git']) } catch (e) {}
-      await pruneForeign(root, sid)
       const rs = refSid(sid)
-      const head = await gitRun(root, ['rev-parse', '--verify', 'refs/dsh-rewind/' + rs + '/head']).catch(() => '')
+      const headRef = 'refs/dsh-rewind/' + rs + '/head'
+      const head = await gitRun(root, ['rev-parse', '--verify', headRef]).catch(() => '')
       if (head.trim() === '') {
         const emptyTree = (await gitRun(root, ['mktree'], { input: '' })).trim()
         const commit = await commitTree(root, emptyTree, null, { id: 'init', sessionId: sid, trigger: 'resume', turn: 0, label: 'workspace baseline', files: 0, untracked: [], skippedLarge: [], skippedDirs: [], time: Date.now() })
-        await gitRun(root, ['update-ref', 'refs/dsh-rewind/' + rs + '/head', commit])
+        await gitRun(root, ['update-ref', headRef, commit])
       }
-      try { await gitRun(root, ['symbolic-ref', 'HEAD', 'refs/dsh-rewind/' + rs + '/head']) } catch (e) {}
+      // The shadow repository has one index. Since all operations are serialized,
+      // activating the calling session here safely prevents cross-session index
+      // and HEAD leakage inside a shared workspace.
+      await gitRun(root, ['symbolic-ref', 'HEAD', headRef])
+      await gitRun(root, ['read-tree', headRef])
+
+      // Record the real workspace as visible S0. The previous implementation
+      // only recorded S1 after the first turn, so restoring the sole checkpoint
+      // matched the current files and looked like a no-op.
+      const meta = await readMeta(root)
+      const sess = meta.sessions[sid]
+      if (!sess || !Array.isArray(sess.checkpoints) || sess.checkpoints.length === 0) {
+        await checkpoint(root, sid, { trigger: 'start', turn: 0, label: 'task start · before the first agent turn', force: true })
+      }
       return true
     }
 
     async function ensureReady(root, sid) {
       if (S.gitPath === '') S.gitPath = await resolveGit()
-      if (!S.inited.has(root)) {
+      const key = root + '\u0000' + sid
+      if (!S.inited.has(key)) {
         await initWorkspace(root, sid)
-        S.inited.add(root)
+        S.inited.add(key)
+      } else {
+        const headRef = 'refs/dsh-rewind/' + refSid(sid) + '/head'
+        await gitRun(root, ['symbolic-ref', 'HEAD', headRef])
+        await gitRun(root, ['read-tree', headRef])
       }
       return true
     }
@@ -271,7 +276,7 @@ export function apply(ctx, config = {}) {
       const headRef = 'refs/dsh-rewind/' + rs + '/head'
       const parent = await gitRun(root, ['rev-parse', '--verify', headRef]).catch(() => '')
       const headTree = parent.trim() ? (await gitRun(root, ['rev-parse', headRef + '^{tree}']).catch(() => '')).trim() : ''
-      if (tree === headTree && headTree !== '') return { skipped: true, reason: 'worktree unchanged since last checkpoint' }
+      if (tree === headTree && headTree !== '' && !o.force) return { skipped: true, reason: 'worktree unchanged since last checkpoint' }
       const time = Date.now()
       const id = trigger + '-' + turn + '-' + time
       const captured = candidates.filter((p) => !large.has(p))
@@ -325,10 +330,16 @@ export function apply(ctx, config = {}) {
         try {
           const sha = (await gitRun(root, ['rev-parse', '--verify', ref])).trim()
           const msg = await gitRun(root, ['cat-file', 'commit', sha])
-          cps.push(parseCommit(msg, id, sha))
+          const cp = parseCommit(msg, id, sha)
+          if (!cp.tree) cp.tree = (await gitRun(root, ['rev-parse', sha + '^{tree}'])).trim()
+          cps.push(cp)
         } catch (e) {}
       }
       cps.sort((a, b) => a.time - b.time)
+      if (cps.length > 0) {
+        meta.sessions[sid] = { checkpoints: cps, undo: [], redo: [] }
+        await writeMeta(root, meta)
+      }
       return cps
     }
 
@@ -354,6 +365,8 @@ export function apply(ctx, config = {}) {
     }
 
     async function doRestore(root, sid, id) {
+      // listCheckpoints also rebuilds missing metadata from durable refs.
+      await listCheckpoints(root, sid)
       const meta = await readMeta(root)
       const sess = meta.sessions[sid]
       if (!sess) throw new Error('no checkpoints for this session')
@@ -395,11 +408,14 @@ export function apply(ctx, config = {}) {
       const cps = await listCheckpoints(root, sid)
       const cp = cps.find((c) => c.id === id)
       if (!cp) throw new Error('unknown checkpoint: ' + id)
-      const stat = await gitRun(root, ['diff', '--stat', cp.sha, '--'], { cap: 256 * 1024 }).catch(() => '')
+      // Reverse the ordinary commit→worktree diff. A preview describes the
+      // patch restore will apply (current→checkpoint), so green lines are
+      // genuinely added by restore and red lines genuinely removed.
+      const stat = await gitRun(root, ['diff', '-R', '--stat', cp.sha, '--'], { cap: 256 * 1024 }).catch(() => '')
       let diff = ''
       let truncated = false
       try {
-        diff = await gitRun(root, ['diff', '-U3', '--no-color', cp.sha, '--'], { cap: 96 * 1024 })
+        diff = await gitRun(root, ['diff', '-R', '-U3', '--no-color', cp.sha, '--'], { cap: 96 * 1024 })
       } catch (e) { diff = String(e && e.message || e) }
       if (diff.length >= 96 * 1024 - 2048) truncated = true
       return { id, label: cp.label, turn: cp.turn, time: cp.time, stat, diff, truncated }
@@ -434,6 +450,7 @@ export function apply(ctx, config = {}) {
     ctx.on('agent/session-start', (p) => { trackAgent(p && p.agent) })
     ctx.on('agent/inbox/claimed', (p) => {
       if (!p || !p.agent) return
+      trackAgent(p.agent)
       const sid = String(p.agent.id)
       const m = p.message
       let prompt = ''
@@ -441,6 +458,17 @@ export function apply(ctx, config = {}) {
         for (const b of m.content) if (b && b.type === 'text' && typeof b.text === 'string') { prompt = trunc(b.text, 90); break }
       }
       S.turnLabel.set(sid, { prompt, tools: [] })
+      const root = S.sessionWorkspace.get(sid)
+      if (root) {
+        // Queue S0 before the model can reach its first mutating tool. In Web the
+        // state poll normally initializes even earlier; this path makes headless
+        // and freshly resumed sessions obey the same before/after invariant.
+        void enqueue(async () => {
+          await ensureReady(root, sid)
+          const r = await checkpoint(root, sid, { trigger: 'turn-start', turn: p.turn || 0, label: prompt ? 'before · "' + trunc(prompt, 80) + '"' : 'before agent turn' })
+          if (!r.skipped) log('turn-start checkpoint', sid, r.checkpoint.id)
+        }).catch((e) => warn('turn-start checkpoint failed', sid, String(e && e.message || e)))
+      }
     })
     ctx.on('tools/result', (exec) => {
       if (!exec || !exec.agent) return
@@ -479,13 +507,20 @@ export function apply(ctx, config = {}) {
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
       res.end(JSON.stringify(body))
     }
-    const route = (path, handler) => webServer.register({ kind: 'exact', path, handler })
+    const route = (path, handler) => {
+      const register = () => webServer.register({ kind: 'exact', path, handler })
+      return typeof ctx.effect === 'function' ? ctx.effect(register, 'dsh-rewind route ' + path) : register()
+    }
     const params = (req) => new URL(req.url, 'http://localhost').searchParams
     const wsOr404 = async (req, res) => {
       const ws = await workspaceFor(params(req).get('session') || '')
       if (!ws) { json(res, 200, { ok: true, ready: false, reason: 'no-session', checkpoints: [], undoCount: 0, redoCount: 0 }); return null }
       return ws
     }
+
+    route('/dsh-rewind/health', async (_req, res) => {
+      json(res, 200, { ok: true, plugin: name, version, engine: 'git-shadow', automatic: ['start', 'turn-start', 'turn'] })
+    })
 
     route('/dsh-rewind/state', async (req, res) => {
       try {
@@ -572,7 +607,7 @@ export function apply(ctx, config = {}) {
     // ---- model tool ----
     tools.register({
       name: 'rewind',
-      description: 'Checkpoint/rewind for the DSH session workspace (adapted from pi-rewind). Git-based snapshots are taken automatically after each agent turn that changes files. Actions: list - show checkpoints; preview - show the unified diff that restoring a checkpoint id would apply; restore - restore workspace files to a checkpoint (a safety checkpoint is created first); undo - undo the last restore; redo - redo it; checkpoint - snapshot the workspace now.',
+      description: REWIND_TOOL_DESCRIPTION,
       parameters: {
         type: 'object',
         properties: {
@@ -631,5 +666,4 @@ export function apply(ctx, config = {}) {
         try { return await enqueue(run) } catch (e) { return 'dsh-rewind error: ' + String(e && e.message || e) }
       },
     })
-  })
 }

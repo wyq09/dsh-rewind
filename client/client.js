@@ -101,18 +101,24 @@ window.__ModuleLoader__.load({ id: 'dsh-rewind', factory: (require) => {
     const cps = data && data.checkpoints ? data.checkpoints : []
 
     if (!s.open) {
-      return react.createElement('div', {
-        className: 'rw-pill',
-        title: 'dsh-rewind: open the checkpoint timeline',
-        style: { right: s.x, bottom: s.y },
-        onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp,
-        onClick: () => { if (!drag.moved) store.patch({ open: true }) },
-      }, '⏪ ', react.createElement('span', { className: 'rw-pill-n' }, String(cps.length)))
+      // Keep CSS mounted while collapsed. Previously the only <style> lived in
+      // the expanded panel, so a fresh page rendered the pill as unpositioned
+      // plain text at the bottom of the document — easy to mistake for a plugin
+      // that never loaded.
+      return react.createElement(react.Fragment, null,
+        react.createElement('style', null, CSS),
+        react.createElement('div', {
+          className: 'rw-pill',
+          title: 'dsh-rewind: open the checkpoint timeline',
+          style: { right: s.x, bottom: s.y },
+          onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp,
+          onClick: () => { if (!drag.moved) store.patch({ open: true }) },
+        }, '⏪ ', react.createElement('span', { className: 'rw-pill-n' }, String(cps.length))))
     }
 
     const rows = cps.slice().reverse().map((c) => {
       const active = c.id === sel
-      const tag = c.trigger === 'before-restore' ? 'safety' : c.trigger === 'resume' ? 'start' : c.trigger === 'manual' ? 'manual' : ''
+      const tag = c.trigger === 'before-restore' ? 'safety' : c.trigger === 'start' || c.trigger === 'turn-start' || c.trigger === 'resume' ? 'start' : c.trigger === 'manual' ? 'manual' : ''
       return react.createElement('button', {
         key: c.id,
         className: 'rw-item' + (active ? ' rw-item-sel' : ''),
