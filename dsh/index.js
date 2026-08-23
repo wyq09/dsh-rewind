@@ -19,7 +19,7 @@ const IGNORED_DIRS = ['node_modules', '.venv', 'venv', 'env', '.env', 'dist', 'b
 const MUTATING_TOOLS = ['write', 'edit', 'bash']
 
 export const name = 'dsh-rewind'
-export const version = '1.1.0'
+export const version = '1.1.1'
 export const inject = ['subprocess', 'fs', 'tools', 'webServer', 'agents']
 
 export function apply(ctx, config = {}) {

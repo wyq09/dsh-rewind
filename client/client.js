@@ -20,7 +20,29 @@ window.__ModuleLoader__.load({ id: 'dsh-rewind', factory: (require) => {
     }
   })()
 
-  const CSS = '.rw-pill{position:fixed;z-index:2147483000;display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:rgba(23,24,29,.92);border:1px solid rgba(255,255,255,.14);color:#e7e9ee;font:600 12px/1 system-ui,sans-serif;cursor:grab;user-select:none;box-shadow:0 8px 24px rgba(0,0,0,.35);backdrop-filter:blur(8px)}.rw-pill-n{opacity:.85;font-variant-numeric:tabular-nums}.rw-panel{position:fixed;z-index:2147483000;width:440px;max-width:calc(100vw - 32px);max-height:600px;display:flex;flex-direction:column;border-radius:14px;background:rgba(23,24,29,.97);border:1px solid rgba(255,255,255,.14);color:#e7e9ee;font:13px/1.45 system-ui,sans-serif;box-shadow:0 18px 48px rgba(0,0,0,.5);overflow:hidden}.rw-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.1);cursor:grab;user-select:none}.rw-title{font-weight:700}.rw-sub{color:#9aa0ad;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rw-spacer{flex:1}.rw-btn{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e7e9ee;border-radius:8px;padding:5px 10px;font:600 12px/1 system-ui,sans-serif;cursor:pointer}.rw-btn:disabled{opacity:.4;cursor:default}.rw-btn-danger{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.14);color:#fca5a5}.rw-body{padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-height:0}.rw-list{overflow:auto;max-height:190px;border:1px solid rgba(255,255,255,.1);border-radius:10px}.rw-item{display:block;width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid rgba(255,255,255,.07);color:inherit;padding:7px 10px;cursor:pointer;font:inherit}.rw-item:hover{background:rgba(255,255,255,.05)}.rw-item-sel{background:rgba(139,157,255,.12);border-left:3px solid #8b9dff}.rw-item-head{display:flex;justify-content:space-between;gap:8px}.rw-item-turn{font-weight:700;color:#8b9dff}.rw-item-meta{color:#9aa0ad;font-size:11px}.rw-item-label{display:block;color:#c9cdd6;font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rw-actions{display:flex;flex-wrap:wrap;gap:6px}.rw-msg{color:#7ee2a8;font-size:12px}.rw-err{color:#fca5a5;font-size:12px}.rw-diff{border:1px solid rgba(255,255,255,.1);border-radius:10px;overflow:auto;max-height:240px;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(0,0,0,.3)}.rw-diff-stat{color:#b0b7c3;padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.08)}.rw-line{padding:0 10px;white-space:pre-wrap;word-break:break-all}.rw-add{background:rgba(61,220,132,.12);color:#7ee2a8}.rw-del{background:rgba(248,81,73,.12);color:#ff9d96}.rw-hunk{color:#7db3ff}.rw-meta{color:#8b93a1}.rw-ctx{color:#d5d9e0}.rw-muted{color:#8b93a1;font-size:11px;padding:4px 10px}'
+  const CSS = '.rw-pill{position:fixed;z-index:2147483000;display:flex;align-items:center;gap:7px;padding:7px 12px;border-radius:999px;background:rgba(23,24,29,.92);border:1px solid rgba(255,255,255,.14);color:#e7e9ee;font:600 12px/1 system-ui,sans-serif;cursor:grab;user-select:none;box-shadow:0 8px 24px rgba(0,0,0,.35);backdrop-filter:blur(8px)}.rw-pill-n{opacity:.85;font-variant-numeric:tabular-nums}.rw-panel{position:fixed;z-index:2147483000;width:440px;max-width:calc(100vw - 32px);max-height:600px;display:flex;flex-direction:column;border-radius:14px;background:rgba(23,24,29,.97);border:1px solid rgba(255,255,255,.14);color:#e7e9ee;font:13px/1.45 system-ui,sans-serif;box-shadow:0 18px 48px rgba(0,0,0,.5);overflow:hidden}.rw-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.1);cursor:grab;user-select:none}.rw-title{display:inline-flex;align-items:center;gap:7px;font-weight:700}.rw-brand{color:#9aaaFF}.rw-icon{display:block;flex:0 0 auto}.rw-sub{color:#9aa0ad;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rw-spacer{flex:1}.rw-head-actions{display:flex;gap:6px;cursor:default}.rw-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e7e9ee;border-radius:8px;padding:6px 10px;font:600 12px/1 system-ui,sans-serif;cursor:pointer;transition:background .15s ease,border-color .15s ease,transform .15s ease}.rw-btn:hover:not(:disabled){background:rgba(255,255,255,.11);border-color:rgba(255,255,255,.25)}.rw-btn:active:not(:disabled){transform:translateY(1px)}.rw-btn:disabled{opacity:.4;cursor:default}.rw-icon-btn{width:36px;height:32px;padding:0}.rw-btn-danger{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.14);color:#fca5a5}.rw-body{padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-height:0}.rw-list{overflow:auto;max-height:190px;border:1px solid rgba(255,255,255,.1);border-radius:10px}.rw-item{display:block;width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid rgba(255,255,255,.07);color:inherit;padding:7px 10px;cursor:pointer;font:inherit}.rw-item:hover{background:rgba(255,255,255,.05)}.rw-item-sel{background:rgba(139,157,255,.12);border-left:3px solid #8b9dff}.rw-item-head{display:flex;justify-content:space-between;gap:8px}.rw-item-turn{font-weight:700;color:#8b9dff}.rw-item-meta{color:#9aa0ad;font-size:11px}.rw-item-label{display:block;color:#c9cdd6;font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rw-actions{display:flex;flex-wrap:wrap;gap:6px}.rw-msg{color:#7ee2a8;font-size:12px}.rw-err{color:#fca5a5;font-size:12px}.rw-diff{border:1px solid rgba(255,255,255,.1);border-radius:10px;overflow:auto;max-height:240px;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(0,0,0,.3)}.rw-diff-stat{color:#b0b7c3;padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.08)}.rw-line{padding:0 10px;white-space:pre-wrap;word-break:break-all}.rw-add{background:rgba(61,220,132,.12);color:#7ee2a8}.rw-del{background:rgba(248,81,73,.12);color:#ff9d96}.rw-hunk{color:#7db3ff}.rw-meta{color:#8b93a1}.rw-ctx{color:#d5d9e0}.rw-muted{color:#8b93a1;font-size:11px;padding:4px 10px}'
+
+  const ICON_PATHS = {
+    rewind: ['M3 12a9 9 0 1 0 3-6.7', 'M3 4v6h6', 'M12 7v5l3 2'],
+    refresh: ['M20 6v5h-5', 'M4 18v-5h5', 'M19 11a7 7 0 0 0-12-4L4 11', 'M5 13a7 7 0 0 0 12 4l3-4'],
+    minimize: ['M5 12h14'],
+    close: ['M6 6l12 12M18 6L6 18'],
+    camera: ['M4 8h3l2-3h6l2 3h3v11H4z', 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'],
+    undo: ['M9 7l-5 5 5 5', 'M4 12h9a7 7 0 0 1 7 7'],
+    redo: ['M15 7l5 5-5 5', 'M20 12h-9a7 7 0 0 0-7 7'],
+    restore: ['M3 12a9 9 0 1 0 3-6.7', 'M3 4v6h6'],
+    alert: ['M12 3 2 21h20L12 3z', 'M12 9v5', 'M12 18h.01'],
+  }
+  function Icon(props) {
+    const paths = ICON_PATHS[props.name] || []
+    return react.createElement('svg', {
+      className: 'rw-icon' + (props.className ? ' ' + props.className : ''),
+      width: props.size || 16, height: props.size || 16, viewBox: '0 0 24 24',
+      fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
+      'aria-hidden': 'true', focusable: 'false',
+    }, paths.map((d, i) => react.createElement('path', { d, key: i })))
+  }
+  const buttonLabel = (icon, text) => [react.createElement(Icon, { name: icon, key: 'icon' }), react.createElement('span', { key: 'text' }, text)]
 
   const fmtTime = (t) => { try { return new Date(t).toLocaleTimeString([], { hour12: false }) } catch (e) { return String(t) } }
   const lineClass = (ln) => {
@@ -58,6 +80,11 @@ window.__ModuleLoader__.load({ id: 'dsh-rewind', factory: (require) => {
       try { setData(await getJSON('/dsh-rewind/state?session=' + encodeURIComponent(sessionId))) }
       catch (e) { setMsg(String((e && e.message) || e)) }
     }, [sessionId])
+    const refreshNow = async () => {
+      setMsg('')
+      await refresh()
+      setMsg('已刷新')
+    }
 
     react.useEffect(() => {
       refresh()
@@ -83,6 +110,7 @@ window.__ModuleLoader__.load({ id: 'dsh-rewind', factory: (require) => {
     }
 
     const onDown = (e) => {
+      if (e.target && typeof e.target.closest === 'function' && e.target.closest('button')) return
       const st = store.get()
       setDrag({ active: true, moved: false, id: e.pointerId, x0: e.clientX, y0: e.clientY, bx: st.x, by: st.y })
       try { if (e.currentTarget && e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId) } catch (err) {}
@@ -113,7 +141,7 @@ window.__ModuleLoader__.load({ id: 'dsh-rewind', factory: (require) => {
           style: { right: s.x, bottom: s.y },
           onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp,
           onClick: () => { if (!drag.moved) store.patch({ open: true }) },
-        }, '⏪ ', react.createElement('span', { className: 'rw-pill-n' }, String(cps.length))))
+        }, react.createElement(Icon, { name: 'rewind', className: 'rw-brand', size: 17 }), react.createElement('span', { className: 'rw-pill-n' }, String(cps.length))))
     }
 
     const rows = cps.slice().reverse().map((c) => {
@@ -143,29 +171,31 @@ window.__ModuleLoader__.load({ id: 'dsh-rewind', factory: (require) => {
     return react.createElement('div', { className: 'rw-panel', style: { right: s.x, bottom: s.y } },
       react.createElement('style', null, CSS),
       react.createElement('div', { className: 'rw-head', onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp },
-        react.createElement('span', { className: 'rw-title' }, '⏪ Rewind'),
+        react.createElement('span', { className: 'rw-title' }, react.createElement(Icon, { name: 'rewind', className: 'rw-brand', size: 18 }), react.createElement('span', null, 'Rewind')),
         react.createElement('span', { className: 'rw-sub' }, (data && data.root ? data.root.split('/').pop() : '…') + ' · ' + cps.length + ' checkpoints'),
         react.createElement('span', { className: 'rw-spacer' }),
-        react.createElement('button', { className: 'rw-btn', title: 'Refresh', onClick: () => refresh() }, '⟳'),
-        react.createElement('button', { className: 'rw-btn', title: 'Collapse', onClick: () => store.patch({ open: false }) }, '−'),
-        react.createElement('button', { className: 'rw-btn', title: 'Close', onClick: () => store.patch({ open: false }) }, '×')),
+        react.createElement('div', { className: 'rw-head-actions', onPointerDown: (e) => e.stopPropagation() },
+          react.createElement('button', { type: 'button', className: 'rw-btn rw-icon-btn', title: '刷新', 'aria-label': '刷新', onClick: refreshNow }, react.createElement(Icon, { name: 'refresh' })),
+          react.createElement('button', { type: 'button', className: 'rw-btn rw-icon-btn', title: '收起', 'aria-label': '收起', onClick: () => store.patch({ open: false }) }, react.createElement(Icon, { name: 'minimize' })),
+          react.createElement('button', { type: 'button', className: 'rw-btn rw-icon-btn', title: '关闭', 'aria-label': '关闭', onClick: () => store.patch({ open: false }) }, react.createElement(Icon, { name: 'close' })))),
       react.createElement('div', { className: 'rw-body' },
         ready === false ? react.createElement('div', { className: 'rw-err' }, 'dsh-rewind 尚未检测到会话工作区（' + (data && data.reason || 'unknown') + '）') : null,
         cps.length === 0 && ready ? react.createElement('div', { className: 'rw-muted' }, '还没有检查点。每个改动过文件的 agent 回合结束后会自动创建。') : null,
         react.createElement('div', { className: 'rw-list' }, rows),
         diffEl,
         react.createElement('div', { className: 'rw-actions' },
-          react.createElement('button', { className: 'rw-btn', disabled: busy, onClick: () => call('/dsh-rewind/checkpoint') }, '📸 立即快照'),
-          react.createElement('button', { className: 'rw-btn', disabled: busy, onClick: () => call('/dsh-rewind/undo') }, '↩ 撤销 (' + (data && data.undoCount || 0) + ')'),
-          react.createElement('button', { className: 'rw-btn', disabled: busy, onClick: () => call('/dsh-rewind/redo') }, '↪ 重做 (' + (data && data.redoCount || 0) + ')'),
+          react.createElement('button', { type: 'button', className: 'rw-btn', disabled: busy, onClick: () => call('/dsh-rewind/checkpoint') }, buttonLabel('camera', '立即快照')),
+          react.createElement('button', { type: 'button', className: 'rw-btn', disabled: busy, onClick: () => call('/dsh-rewind/undo') }, buttonLabel('undo', '撤销 (' + (data && data.undoCount || 0) + ')')),
+          react.createElement('button', { type: 'button', className: 'rw-btn', disabled: busy, onClick: () => call('/dsh-rewind/redo') }, buttonLabel('redo', '重做 (' + (data && data.redoCount || 0) + ')')),
           react.createElement('button', {
+            type: 'button',
             className: 'rw-btn' + (confirm ? ' rw-btn-danger' : ''),
             disabled: busy || !sel,
             onClick: () => {
               if (!confirm) { setConfirm(true); setMsg('将把文件还原到 ' + sel + ' — 再点一次确认') }
               else { setConfirm(false); call('/dsh-rewind/restore?id=' + encodeURIComponent(sel)) }
             },
-          }, confirm ? '⚠ 确认还原' : '↺ 还原选中项')),
+          }, buttonLabel(confirm ? 'alert' : 'restore', confirm ? '确认还原' : '还原选中项'))),
         msg ? react.createElement('div', { className: 'rw-msg' }, msg) : null,
         data && data.error ? react.createElement('div', { className: 'rw-err' }, data.error) : null)
     )

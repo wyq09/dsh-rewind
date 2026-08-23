@@ -74,7 +74,7 @@ dsh plugin --profile web add . --force
 仓库版本发布到远端后执行：
 
 ```bash
-dsh plugin --profile web add github:wyq09/dsh-rewind
+dsh plugin --profile web add 'github:wyq09/dsh-rewind#v1.1.1'
 ```
 
 ### 验证组合配置
@@ -104,10 +104,10 @@ dsh web
 dsh web --no-open
 ```
 
-终端应出现：
+终端应出现（版本号不低于 `v1.1.1`）：
 
 ```text
-[dsh-rewind] host loaded v1.1.0
+[dsh-rewind] host loaded v1.1.1
 ```
 
 若服务地址是 `http://127.0.0.1:3000`，可直接自检后端：
@@ -116,7 +116,7 @@ dsh web --no-open
 curl http://127.0.0.1:3000/dsh-rewind/health
 ```
 
-应返回 `"ok":true` 和 `"version":"1.1.0"`。最后在浏览器强制刷新一次（macOS：`Cmd+Shift+R`；Windows/Linux：`Ctrl+F5`）。
+应返回 `"ok":true` 和 `"version":"1.1.1"`。最后在浏览器强制刷新一次（macOS：`Cmd+Shift+R`；Windows/Linux：`Ctrl+F5`）。
 
 ## 第一次使用：完整流程
 

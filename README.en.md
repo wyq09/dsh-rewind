@@ -30,7 +30,7 @@ cd /absolute/path/to/dsh-rewind
 dsh plugin --profile web add .
 
 # Or from GitHub after the release is pushed
-dsh plugin --profile web add github:wyq09/dsh-rewind
+dsh plugin --profile web add 'github:wyq09/dsh-rewind#v1.1.1'
 
 # restart
 dsh web
